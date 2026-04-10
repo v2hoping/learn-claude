@@ -1,0 +1,6 @@
+
+# Claude Code local recovery
+.claude-recovery/
+
+# NPM local cache
+.npm-cache/
