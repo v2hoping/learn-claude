@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Background,
   Controls,
@@ -268,7 +268,11 @@ const nodeTypes = {
   toolsNode: ToolsNode,
 };
 
-const createDiamondLabel = (label: string, category: keyof typeof colors): ReactNode => (
+const createDiamondLabel = (
+  label: string,
+  category: keyof typeof colors,
+  options?: { isActive?: boolean; isDimmed?: boolean }
+): ReactNode => (
   <div
     style={{
       position: 'relative',
@@ -290,12 +294,16 @@ const createDiamondLabel = (label: string, category: keyof typeof colors): React
     >
       <polygon
         points={`${nodeWidth / 2},1 ${nodeWidth - 1},${diamondHeight / 2} ${nodeWidth / 2},${diamondHeight - 1} 1,${diamondHeight / 2}`}
-        fill={colors[category].bg}
-        stroke={colors[category].border}
-        strokeWidth="2"
+        fill={options?.isActive ? '#ffffff' : colors[category].bg}
+        stroke={options?.isActive ? '#0ea5e9' : colors[category].border}
+        strokeWidth={options?.isActive ? '3' : '2'}
         vectorEffect="non-scaling-stroke"
         style={{
-          filter: 'drop-shadow(0 4px 6px rgb(0 0 0 / 0.1))',
+          opacity: options?.isDimmed ? 0.35 : 1,
+          filter: options?.isActive
+            ? 'drop-shadow(0 0 16px rgb(14 165 233 / 0.35)) drop-shadow(0 10px 24px rgb(14 165 233 / 0.22))'
+            : 'drop-shadow(0 4px 6px rgb(0 0 0 / 0.1))',
+          transition: 'all 240ms ease',
         }}
       />
     </svg>
@@ -303,12 +311,14 @@ const createDiamondLabel = (label: string, category: keyof typeof colors): React
       style={{
         position: 'relative',
         zIndex: 1,
-        color: colors[category].text,
+        color: options?.isActive ? '#0369a1' : colors[category].text,
+        opacity: options?.isDimmed ? 0.55 : 1,
         fontSize: '14px',
         fontWeight: 'bold',
         lineHeight: 1.2,
         textAlign: 'center',
         padding: '0 24px',
+        transition: 'all 240ms ease',
       }}
     >
       {label}
@@ -326,7 +336,12 @@ const createNode = (
   return {
     id,
     type,
-    data: { label: isDiamond ? createDiamondLabel(label, category) : label },
+    data: {
+      label: isDiamond ? createDiamondLabel(label, category) : label,
+      rawLabel: label,
+      category,
+      isDiamond,
+    },
     position: { x: 0, y: 0 },
     style: {
       background: isDiamond ? 'transparent' : colors[category].bg,
@@ -476,6 +491,8 @@ type DemoStep = {
   principle: string;
   tools: string[];
   result: string;
+  activeNodes: string[];
+  activeEdges: string[];
 };
 
 const demoSteps: DemoStep[] = [
@@ -488,6 +505,8 @@ const demoSteps: DemoStep[] = [
     principle: '任务首先进入 QueryEngine，会被纳入当前会话与工作目录上下文。',
     tools: ['QueryEngine', 'Conversation State'],
     result: '建立“账号密码注册登录 + Google OAuth + 最终测试”的目标范围与输出预期。',
+    activeNodes: ['User', 'QE', 'Query'],
+    activeEdges: ['e-User-QE', 'e-QE-Query'],
   },
   {
     id: 'context',
@@ -498,6 +517,15 @@ const demoSteps: DemoStep[] = [
     principle: '中间架构图里的 Context 节点在这一步生效，决定 Claude Code “知道什么”。',
     tools: ['System Prompt', 'CLAUDE.md', 'Git Status', 'Memory'],
     result: '得到“项目规则 + 当前代码库状态 + 历史工作轨迹”的完整上下文。',
+    activeNodes: ['Context', 'SysPrompt', 'GitStatus', 'ClaudeMD', 'Compact', 'Memory', 'Query'],
+    activeEdges: [
+      'e-Context-Query',
+      'e-Context-SysPrompt',
+      'e-Context-GitStatus',
+      'e-Context-ClaudeMD',
+      'e-Context-Compact',
+      'e-Context-Memory',
+    ],
   },
   {
     id: 'agent-survey',
@@ -508,6 +536,17 @@ const demoSteps: DemoStep[] = [
     principle: '这一步体现了执行图里不仅有基础工具，还可以通过 AgentTool 进行更高层次的并行检索与归纳。',
     tools: ['AgentTool', 'GlobTool', 'GrepTool', 'FileReadTool'],
     result: '拿到当前技术栈、可复用模块，以及“本地认证 + Google OAuth”应落在哪些文件中的结论。',
+    activeNodes: ['Query', 'API', 'Parse', 'Tools', 'AgentTool', 'GlobTool', 'GrepTool', 'FileReadTool'],
+    activeEdges: [
+      'e-Query-API',
+      'e-API-Parse',
+      'e-Parse-Tools',
+      'e-Tools-AgentTool',
+      'e-Tools-GlobTool',
+      'e-Tools-GrepTool',
+      'e-Tools-FileReadTool',
+      'e-Tools-Query',
+    ],
   },
   {
     id: 'oauth-research',
@@ -518,6 +557,15 @@ const demoSteps: DemoStep[] = [
     principle: '外部知识并不直接靠模型记忆硬猜，而是通过检索与抓取把最新资料注入当前推理回路。',
     tools: ['WebSearchTool', 'WebFetchTool'],
     result: '确认 Google 登录所需的 client 配置、授权流程、回调字段与实现约束。',
+    activeNodes: ['Query', 'API', 'Parse', 'Tools', 'WebSearchTool', 'WebFetchTool'],
+    activeEdges: [
+      'e-Query-API',
+      'e-API-Parse',
+      'e-Parse-Tools',
+      'e-Tools-WebSearchTool',
+      'e-Tools-WebFetchTool',
+      'e-Tools-Query',
+    ],
   },
   {
     id: 'plan',
@@ -528,6 +576,8 @@ const demoSteps: DemoStep[] = [
     principle: '工具结果回注到 query 后，模型进行新一轮推理并决定下一批动作。',
     tools: ['Reasoning', 'Tool Result Injection'],
     result: '得到一套分阶段实施方案，而不是盲目一次性生成整套认证系统。',
+    activeNodes: ['Query', 'API', 'Parse', 'Tools'],
+    activeEdges: ['e-Query-API', 'e-API-Parse', 'e-Parse-Tools', 'e-Tools-Query'],
   },
   {
     id: 'implement',
@@ -538,6 +588,16 @@ const demoSteps: DemoStep[] = [
     principle: '真正写代码时会循环使用 FileReadTool -> FileEditTool/FileWriteTool -> FileReadTool 的模式，持续对齐实现与已有仓库结构。',
     tools: ['FileReadTool', 'FileEditTool', 'FileWriteTool'],
     result: '本地登录注册链路与第三方谷歌登录链路被逐步落盘到仓库中。',
+    activeNodes: ['Query', 'API', 'Parse', 'Tools', 'FileReadTool', 'FileEditTool', 'FileWriteTool'],
+    activeEdges: [
+      'e-Query-API',
+      'e-API-Parse',
+      'e-Parse-Tools',
+      'e-Tools-FileReadTool',
+      'e-Tools-FileEditTool',
+      'e-Tools-FileWriteTool',
+      'e-Tools-Query',
+    ],
   },
   {
     id: 'permission',
@@ -548,6 +608,8 @@ const demoSteps: DemoStep[] = [
     principle: '右侧工具调用并不是直接执行，中间还会经过 Rules、AST 分析与用户确认。',
     tools: ['Permissions', 'Rules', 'AST', 'Confirm'],
     result: '高风险操作被拦截、降级或请求授权，避免误伤本地环境。',
+    activeNodes: ['Perm', 'Rules', 'AST', 'Confirm', 'Tools'],
+    activeEdges: ['e-Perm-Tools', 'e-Perm-Rules', 'e-Perm-AST', 'e-Perm-Confirm'],
   },
   {
     id: 'verify-build-test',
@@ -555,46 +617,197 @@ const demoSteps: DemoStep[] = [
     phase: '验证',
     title: '通过 BashTool 执行编译与测试',
     summary: '代码初版完成后，Claude Code 会调用 BashTool 运行构建和测试命令，例如类型检查、编译、单元测试或集成测试，验证登录注册与 Google 登录流程是否可用。',
-    principle: '命令输出会作为 tool result 回注给 query，成为下一轮修复决策的直接依据。',
+    principle: 'BashTool 真正执行前会先经过权限系统校验；命令输出随后作为 tool result 回注给 query，成为下一轮修复决策的直接依据。',
     tools: ['BashTool', 'GetDiagnostics'],
     result: '发现测试失败、类型错误、OAuth 回调参数不匹配或环境变量遗漏等问题。',
+    activeNodes: ['Query', 'API', 'Parse', 'Perm', 'Rules', 'AST', 'Confirm', 'Tools', 'BashTool'],
+    activeEdges: [
+      'e-Query-API',
+      'e-API-Parse',
+      'e-Parse-Tools',
+      'e-Perm-Tools',
+      'e-Perm-Rules',
+      'e-Perm-AST',
+      'e-Perm-Confirm',
+      'e-Tools-BashTool',
+      'e-Tools-Query',
+    ],
+  },
+  {
+    id: 'analyze-failure',
+    time: '01:32',
+    phase: '分析',
+    title: 'Claude API 结合异常信息再次推理',
+    summary: 'BashTool 返回失败日志后，新的异常信息会连同当前代码上下文、历史工具结果一起回注到 query，再发起一次 Claude API 调用，让模型先分析报错根因与修复策略。',
+    principle: '这里不是直接开始改代码，而是先经过“工具结果回注 -> Claude API 调用 -> 解析响应”的一轮再推理，再决定要调用哪些修复工具。',
+    tools: ['BashTool', 'Claude API', 'Parse'],
+    result: '得到针对类型错误、字段不匹配或 OAuth 回调缺陷的具体修复方案。',
+    activeNodes: ['Tools', 'Query', 'API', 'Parse'],
+    activeEdges: ['e-Tools-Query', 'e-Query-API', 'e-API-Parse'],
   },
   {
     id: 'repair',
-    time: '01:34',
+    time: '01:40',
     phase: '修复',
     title: '依据测试结果调用 Tool 修复代码',
-    summary: '当 BashTool 返回失败日志后，Claude Code 会重新读取出错文件，定位类型问题、接口字段错误或 Google 登录回调逻辑缺陷，并通过 FileEditTool 精准修补代码。',
-    principle: '这体现了 Claude Code 的典型闭环：测试失败 -> 工具回注 -> 再推理 -> 再编辑，而不是停在报错信息上。',
-    tools: ['FileReadTool', 'FileEditTool', 'BashTool'],
+    summary: '在上一轮 Claude API 已经结合异常信息给出修复方案后，Claude Code 会重新读取出错文件，定位类型问题、接口字段错误或 Google 登录回调逻辑缺陷，并通过 FileEditTool 精准修补代码。',
+    principle: '这体现了 Claude Code 的典型闭环：测试失败 -> 工具回注 -> 再推理 -> 调用编辑工具落地修复，而不是停在报错信息上。',
+    tools: ['FileReadTool', 'FileEditTool'],
     result: '问题代码被定点修复，准备进入下一轮验证。',
+    activeNodes: ['Query', 'API', 'Parse', 'Tools', 'FileReadTool', 'FileEditTool'],
+    activeEdges: [
+      'e-Query-API',
+      'e-API-Parse',
+      'e-Parse-Tools',
+      'e-Tools-FileReadTool',
+      'e-Tools-FileEditTool',
+      'e-Tools-Query',
+    ],
   },
   {
     id: 'retest',
-    time: '01:44',
+    time: '01:50',
     phase: '复测',
     title: '再次执行编译与测试直到通过',
     summary: '修复完成后，Claude Code 会再次通过 BashTool 运行编译与测试，确认注册、登录和谷歌登录相关代码已经恢复为可构建、可测试的稳定状态。',
-    principle: '只有新的工具结果证明问题消失，系统才会结束修复循环并进入最终交付。',
+    principle: '复测同样先经过权限系统校验，只有新的工具结果证明问题消失，系统才会结束修复循环并进入最终交付。',
     tools: ['BashTool'],
     result: '构建与测试通过，认证系统达到可交付状态。',
+    activeNodes: ['Query', 'API', 'Parse', 'Perm', 'Rules', 'AST', 'Confirm', 'Tools', 'BashTool'],
+    activeEdges: [
+      'e-Query-API',
+      'e-API-Parse',
+      'e-Parse-Tools',
+      'e-Perm-Tools',
+      'e-Perm-Rules',
+      'e-Perm-AST',
+      'e-Perm-Confirm',
+      'e-Tools-BashTool',
+      'e-Tools-Query',
+    ],
   },
   {
     id: 'deliver',
-    time: '01:52',
+    time: '01:58',
     phase: '交付',
     title: '整理结果并向用户汇报',
     summary: 'Claude Code 最后会总结修改内容、说明验证情况、列出剩余风险与下一步建议。',
     principle: '如果没有继续需要工具，Parse 会回到 Output 分支并流式输出最终答案。',
     tools: ['Streaming Output'],
     result: '用户拿到一份“登录注册 + 谷歌登录实现 + 测试修复过程 + 最终验证结果”的完整交付。',
+    activeNodes: ['Query', 'API', 'Parse', 'Output'],
+    activeEdges: ['e-Query-API', 'e-API-Parse', 'e-Parse-Output'],
   },
 ];
 
-const ArchitectureCanvas = ({ fitTrigger }: { fitTrigger: boolean }) => {
+const getStepSpeechText = (step: DemoStep) => `${step.title}。`;
+
+const ArchitectureCanvas = ({
+  fitTrigger,
+  focusedStep,
+}: {
+  fitTrigger: boolean;
+  focusedStep: DemoStep | null;
+}) => {
   const [nodes, , onNodesChange] = useNodesState(layoutedNodes);
   const [edges, , onEdgesChange] = useEdgesState(layoutedEdges);
   const reactFlowRef = useRef<ReactFlowInstance<Node, Edge> | null>(null);
+  const highlightedNodes = focusedStep?.activeNodes ?? [];
+  const highlightedEdges = focusedStep?.activeEdges ?? [];
+
+  const displayNodes = useMemo<Node[]>(() => {
+    const hasFocus = highlightedNodes.length > 0;
+    const highlightedNodeSet = new Set(highlightedNodes);
+
+    return nodes.map((node): Node => {
+      const isActive = highlightedNodeSet.has(node.id);
+      const isDiamond = node.id === 'Parse';
+      const nodeData = node.data as {
+        label: ReactNode;
+        rawLabel?: string;
+        category?: keyof typeof colors;
+        isDiamond?: boolean;
+      };
+      const isDimmed = hasFocus && !isActive;
+
+      return {
+        ...node,
+        data: isDiamond
+          ? {
+              ...nodeData,
+              label: createDiamondLabel(nodeData.rawLabel ?? '解析响应', nodeData.category ?? 'core', {
+                isActive,
+                isDimmed,
+              }),
+            }
+          : node.data,
+        draggable: false,
+        selectable: false,
+        style: {
+          ...node.style,
+          opacity: isDiamond ? 1 : isDimmed ? 0.28 : 1,
+          transition: 'all 240ms ease',
+          boxShadow: isActive
+            ? isDiamond
+              ? 'none'
+              : '0 0 0 4px rgb(56 189 248 / 0.22), 0 18px 36px -18px rgb(14 165 233 / 0.9)'
+            : node.style?.boxShadow,
+          borderColor: !isDiamond && isActive ? '#0ea5e9' : node.style?.borderColor,
+          background: !isDiamond && isActive ? '#ffffff' : node.style?.background,
+          filter: isDiamond
+            ? undefined
+            : isActive
+              ? 'drop-shadow(0 0 16px rgb(14 165 233 / 0.35))'
+              : isDimmed
+                ? 'saturate(0.75)'
+                : undefined,
+        },
+      };
+    });
+  }, [highlightedNodes, nodes]);
+
+  const displayEdges = useMemo<Edge[]>(() => {
+    const hasFocus = highlightedEdges.length > 0;
+    const highlightedEdgeSet = new Set(highlightedEdges);
+
+    return edges.map((edge): Edge => {
+      const isActive = highlightedEdgeSet.has(edge.id);
+      const activeColor = '#0ea5e9';
+      const inactiveColor = '#cbd5e1';
+      const markerEnd = edge.markerEnd && typeof edge.markerEnd === 'object' ? edge.markerEnd : undefined;
+      const markerStart = edge.markerStart && typeof edge.markerStart === 'object' ? edge.markerStart : undefined;
+
+      return {
+        ...edge,
+        animated: isActive,
+        zIndex: isActive ? 10 : 1,
+        style: {
+          ...edge.style,
+          stroke: isActive ? activeColor : hasFocus ? inactiveColor : '#94a3b8',
+          strokeWidth: isActive ? 3 : 1.5,
+          opacity: hasFocus && !isActive ? 0.2 : 1,
+          transition: 'all 240ms ease',
+        },
+        markerEnd: markerEnd
+          ? {
+              ...markerEnd,
+              color: isActive ? activeColor : hasFocus ? inactiveColor : '#94a3b8',
+            }
+          : undefined,
+        markerStart: markerStart
+          ? {
+              ...markerStart,
+              color: isActive ? activeColor : hasFocus ? inactiveColor : '#94a3b8',
+            }
+          : undefined,
+        labelStyle: {
+          ...edge.labelStyle,
+          fill: isActive ? '#0369a1' : hasFocus ? '#94a3b8' : '#475569',
+          fontWeight: isActive ? 700 : 500,
+        },
+      };
+    });
+  }, [edges, highlightedEdges]);
 
   const fitArchitecture = useCallback(() => {
     const instance = reactFlowRef.current;
@@ -634,8 +847,8 @@ const ArchitectureCanvas = ({ fitTrigger }: { fitTrigger: boolean }) => {
   return (
     <div className="w-full h-full bg-slate-50 rounded-xl overflow-hidden shadow-inner border border-gray-200">
       <ReactFlow
-        nodes={nodes}
-        edges={edges}
+        nodes={displayNodes}
+        edges={displayEdges}
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
@@ -647,6 +860,9 @@ const ArchitectureCanvas = ({ fitTrigger }: { fitTrigger: boolean }) => {
         fitViewOptions={{ padding: 0.12, minZoom: 0.1, maxZoom: 1 }}
         attributionPosition="bottom-right"
         minZoom={0.1}
+        nodesDraggable={false}
+        nodesConnectable={false}
+        elementsSelectable={false}
       >
         <Background color="#cbd5e1" gap={16} />
         <Controls />
@@ -660,21 +876,40 @@ const ArchitectureFlow = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isArchitectureFullscreen, setIsArchitectureFullscreen] = useState(false);
   const [selectedStep, setSelectedStep] = useState<number | null>(null);
+  const [isVoiceEnabled, setIsVoiceEnabled] = useState(false);
   const timerRef = useRef<number[]>([]);
+  const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+  const lastSpokenStepIdRef = useRef<string | null>(null);
+  const isVoiceAutoplayRef = useRef(false);
   const architectureSectionRef = useRef<HTMLElement | null>(null);
   const stepListRef = useRef<HTMLDivElement | null>(null);
   const stepItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const isSpeechSupported =
+    typeof window !== 'undefined' &&
+    'speechSynthesis' in window &&
+    typeof SpeechSynthesisUtterance !== 'undefined';
 
   const clearPlayback = useCallback(() => {
     timerRef.current.forEach((timer) => window.clearTimeout(timer));
     timerRef.current = [];
   }, []);
 
+  const stopSpeech = useCallback(() => {
+    if (!isSpeechSupported) {
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    utteranceRef.current = null;
+    lastSpokenStepIdRef.current = null;
+  }, [isSpeechSupported]);
+
   useEffect(() => {
     return () => {
       clearPlayback();
+      stopSpeech();
     };
-  }, [clearPlayback]);
+  }, [clearPlayback, stopSpeech]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -690,34 +925,50 @@ const ArchitectureFlow = () => {
 
   const startPlayback = useCallback(() => {
     clearPlayback();
+    stopSpeech();
+    lastSpokenStepIdRef.current = null;
     setSelectedStep(null);
     setActiveStep(-1);
     setIsPlaying(true);
 
     const leadDelay = 400;
-    const stepDelay = 950;
+    if (isVoiceEnabled && isSpeechSupported) {
+      isVoiceAutoplayRef.current = true;
+      const leadTimer = window.setTimeout(() => {
+        setActiveStep(0);
+      }, leadDelay);
+
+      timerRef.current.push(leadTimer);
+      return;
+    }
+
+    isVoiceAutoplayRef.current = false;
+    let elapsedDelay = leadDelay;
 
     demoSteps.forEach((_, index) => {
       const timer = window.setTimeout(() => {
         setActiveStep(index);
-      }, leadDelay + index * stepDelay);
+      }, elapsedDelay);
 
       timerRef.current.push(timer);
+      elapsedDelay += 950;
     });
 
     const finishTimer = window.setTimeout(() => {
       setIsPlaying(false);
-    }, leadDelay + demoSteps.length * stepDelay);
+    }, elapsedDelay);
 
     timerRef.current.push(finishTimer);
-  }, [clearPlayback]);
+  }, [clearPlayback, isSpeechSupported, isVoiceEnabled, stopSpeech]);
 
   const resetPlayback = useCallback(() => {
     clearPlayback();
+    stopSpeech();
+    isVoiceAutoplayRef.current = false;
     setActiveStep(-1);
     setIsPlaying(false);
     setSelectedStep(null);
-  }, [clearPlayback]);
+  }, [clearPlayback, stopSpeech]);
 
   const toggleArchitectureFullscreen = useCallback(async () => {
     const section = architectureSectionRef.current;
@@ -740,6 +991,7 @@ const ArchitectureFlow = () => {
   const visibleCount = Math.max(activeStep + 1, 0);
   const expandedStepIndex = activeStep >= 0 ? activeStep : selectedStep;
   const showResetAction = isPlaying || activeStep >= 0 || selectedStep !== null;
+  const focusedStep = expandedStepIndex === null ? null : demoSteps[expandedStepIndex];
 
   useEffect(() => {
     if (expandedStepIndex === null) {
@@ -765,6 +1017,59 @@ const ArchitectureFlow = () => {
     }
   }, [expandedStepIndex]);
 
+  useEffect(() => {
+    if (!isVoiceEnabled) {
+      stopSpeech();
+      return;
+    }
+
+    if (!isSpeechSupported || !focusedStep) {
+      return;
+    }
+
+    if (lastSpokenStepIdRef.current === focusedStep.id) {
+      return;
+    }
+
+    const utterance = new SpeechSynthesisUtterance(getStepSpeechText(focusedStep));
+    utterance.lang = 'zh-CN';
+    utterance.rate = 1.02;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    utterance.onend = () => {
+      if (utteranceRef.current === utterance) {
+        utteranceRef.current = null;
+      }
+
+      if (!isVoiceAutoplayRef.current || !isPlaying || selectedStep !== null) {
+        return;
+      }
+
+      const currentStepIndex = demoSteps.findIndex((step) => step.id === focusedStep.id);
+
+      if (currentStepIndex === -1) {
+        return;
+      }
+
+      const nextTimer = window.setTimeout(() => {
+        if (currentStepIndex >= demoSteps.length - 1) {
+          isVoiceAutoplayRef.current = false;
+          setIsPlaying(false);
+          return;
+        }
+
+        setActiveStep(currentStepIndex + 1);
+      }, 220);
+
+      timerRef.current.push(nextTimer);
+    };
+
+    window.speechSynthesis.cancel();
+    utteranceRef.current = utterance;
+    lastSpokenStepIdRef.current = focusedStep.id;
+    window.speechSynthesis.speak(utterance);
+  }, [focusedStep, isPlaying, isSpeechSupported, isVoiceEnabled, selectedStep, stopSpeech]);
+
   return (
     <div className="h-full w-full flex flex-col gap-4">
       <div className="grid min-h-[860px] flex-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
@@ -777,6 +1082,35 @@ const ArchitectureFlow = () => {
               <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
                 {visibleCount}/{demoSteps.length}
               </div>
+              <button
+                type="button"
+                disabled={!isSpeechSupported}
+                onClick={() => {
+                  if (!isSpeechSupported) {
+                    return;
+                  }
+
+                  setIsVoiceEnabled((current) => {
+                    const next = !current;
+
+                    if (!next) {
+                      stopSpeech();
+                    } else {
+                      lastSpokenStepIdRef.current = null;
+                    }
+
+                    return next;
+                  });
+                }}
+                className={`rounded-lg border px-4 py-2 text-sm font-medium transition ${
+                  isVoiceEnabled
+                    ? 'border-sky-200 bg-sky-50 text-sky-700'
+                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                } ${!isSpeechSupported ? 'cursor-not-allowed opacity-50' : ''}`}
+                aria-pressed={isVoiceEnabled}
+              >
+                语音朗读：{isVoiceEnabled ? '开' : '关'}
+              </button>
               <button
                 type="button"
                 onClick={showResetAction ? resetPlayback : startPlayback}
@@ -802,6 +1136,8 @@ const ArchitectureFlow = () => {
                     type="button"
                     onClick={() => {
                       clearPlayback();
+                      stopSpeech();
+                      isVoiceAutoplayRef.current = false;
                       setIsPlaying(false);
                       setActiveStep(index);
                       setSelectedStep(index);
@@ -886,7 +1222,7 @@ const ArchitectureFlow = () => {
           </div>
 
           <div className={isArchitectureFullscreen ? 'min-h-0 flex-1' : 'min-h-[620px] flex-1'}>
-            <ArchitectureCanvas fitTrigger={isArchitectureFullscreen} />
+            <ArchitectureCanvas fitTrigger={isArchitectureFullscreen} focusedStep={focusedStep} />
           </div>
         </section>
       </div>
