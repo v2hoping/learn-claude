@@ -1,12 +1,12 @@
-import { useCallback, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   Background,
   Controls,
   Handle,
   MarkerType,
-  Panel,
   Position,
   ReactFlow,
+  type ReactFlowInstance,
   type Node,
   type Edge,
   type NodeProps,
@@ -23,8 +23,8 @@ const nodeWidth = 220;
 const nodeHeight = 60;
 const diamondHeight = 72;
 
-const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => {
-  dagreGraph.setGraph({ rankdir: direction, nodesep: 80, ranksep: 100 });
+const getLayoutedElements = (nodes: Node[], edges: Edge[]) => {
+  dagreGraph.setGraph({ rankdir: 'TB', nodesep: 80, ranksep: 100 });
 
   nodes.forEach((node) => {
     const width = Number(node.style?.width ?? nodeWidth);
@@ -59,23 +59,15 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
 
   const contextNode = dagreGraph.node('Context');
   
-  // Calculate grid offsets based on layout direction
   const horizontalSpacing = nodeWidth + 40;
   const verticalSpacing = nodeHeight + 40;
   const branchOffset = horizontalSpacing * 0.8;
   const anchorNode = dagreGraph.node('User');
 
   const getLinearPosition = (index: number, width: number, height: number) => {
-    if (direction === 'TB') {
-      return {
-        x: anchorNode.x - width / 2,
-        y: anchorNode.y - height / 2 + index * verticalSpacing,
-      };
-    }
-
     return {
-      x: anchorNode.x - width / 2 + index * horizontalSpacing,
-      y: anchorNode.y - height / 2,
+      x: anchorNode.x - width / 2,
+      y: anchorNode.y - height / 2 + index * verticalSpacing,
     };
   };
 
@@ -85,28 +77,19 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
     y: parsePosition.y + diamondHeight / 2,
   };
 
-  const getBranchPosition = (side: 'primary' | 'secondary', width: number, height: number) => {
-    if (direction === 'TB') {
-      return {
-        x: parseCenter.x + (side === 'primary' ? -branchOffset : branchOffset) - width / 2,
-        y: parsePosition.y + verticalSpacing,
-      };
-    }
-
+  const getBranchPosition = (side: 'primary' | 'secondary', width: number) => {
     return {
-      x: parsePosition.x + horizontalSpacing,
-      y: parseCenter.y + (side === 'primary' ? -branchOffset : branchOffset) - height / 2,
+      x: parseCenter.x + (side === 'primary' ? -branchOffset : branchOffset) - width / 2,
+      y: parsePosition.y + verticalSpacing,
     };
   };
 
-  const toolsPosition = getBranchPosition('secondary', nodeWidth, nodeHeight);
+  const toolsPosition = getBranchPosition('secondary', nodeWidth);
   const toolsCenter = {
     x: toolsPosition.x + nodeWidth / 2,
     y: toolsPosition.y + nodeHeight / 2,
   };
-  const toolAreaRightEdge = direction === 'TB'
-    ? toolsPosition.x + nodeWidth + horizontalSpacing
-    : toolsPosition.x + nodeWidth + horizontalSpacing * 3;
+  const toolAreaRightEdge = toolsPosition.x + nodeWidth + horizontalSpacing;
   const securityGap = 80;
   const permPosition = {
     x: toolAreaRightEdge + horizontalSpacing + securityGap,
@@ -132,7 +115,7 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
     if (coreIndex !== -1) {
       newNode.position = getLinearPosition(coreIndex, currentWidth, currentHeight);
     } else if (node.id === 'Output') {
-      newNode.position = getBranchPosition('primary', currentWidth, currentHeight);
+      newNode.position = getBranchPosition('primary', currentWidth);
     } else if (node.id === 'Tools') {
       newNode.position = toolsPosition;
     } else if (node.id === 'Perm') {
@@ -140,19 +123,11 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
     } else if (toolIndex !== -1) {
       const row = Math.floor(toolIndex / 3);
       const col = toolIndex % 3;
-      
-      if (direction === 'TB') {
-        newNode.position = {
-          x: toolsCenter.x - currentWidth / 2 + (col - 1) * horizontalSpacing,
-          y: toolsCenter.y - currentHeight / 2 + (row + 1) * verticalSpacing,
-        };
-      } else {
-        // 'LR' direction
-        newNode.position = {
-          x: toolsCenter.x - currentWidth / 2 + (col + 1) * horizontalSpacing,
-          y: toolsCenter.y - currentHeight / 2 + (row - 1) * verticalSpacing,
-        };
-      }
+
+      newNode.position = {
+        x: toolsCenter.x - currentWidth / 2 + (col - 1) * horizontalSpacing,
+        y: toolsCenter.y - currentHeight / 2 + (row + 1) * verticalSpacing,
+      };
     } else if (securityChildIndex !== -1) {
       newNode.position = {
         x: permCenter.x - currentWidth / 2 + (securityChildIndex - 1) * horizontalSpacing,
@@ -169,18 +144,10 @@ const getLayoutedElements = (nodes: Node[], edges: Edge[], direction = 'TB') => 
       // Row 2 has 2 items (col 0, 1) -> center is 0.5
       const colOffset = isFirstRow ? (col - 1) : (col - 0.5);
 
-      if (direction === 'TB') {
-        newNode.position = {
-          x: contextNode.x - currentWidth / 2 + colOffset * horizontalSpacing,
-          y: contextNode.y - currentHeight / 2 + (row + 1) * verticalSpacing,
-        };
-      } else {
-        // 'LR' direction
-        newNode.position = {
-          x: contextNode.x - currentWidth / 2 + (row + 1) * horizontalSpacing,
-          y: contextNode.y - currentHeight / 2 + colOffset * verticalSpacing,
-        };
-      }
+      newNode.position = {
+        x: contextNode.x - currentWidth / 2 + colOffset * horizontalSpacing,
+        y: contextNode.y - currentHeight / 2 + (row + 1) * verticalSpacing,
+      };
     } else {
       // Default dagre layout for other nodes
       newNode.position = {
@@ -500,23 +467,169 @@ const initialEdges: Edge[] = [
 
 const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(initialNodes, initialEdges);
 
-const ArchitectureFlow = () => {
-  const [nodes, setNodes, onNodesChange] = useNodesState(layoutedNodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(layoutedEdges);
+type DemoStep = {
+  id: string;
+  time: string;
+  phase: string;
+  title: string;
+  summary: string;
+  principle: string;
+  tools: string[];
+  result: string;
+};
 
-  const onLayout = useCallback(
-    (direction: string) => {
-      const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-        nodes,
-        edges,
-        direction
-      );
+const demoSteps: DemoStep[] = [
+  {
+    id: 'request',
+    time: '00:00',
+    phase: '输入',
+    title: '接收真实需求',
+    summary: '用户提出“从头写一个登录注册系统，支持第三方谷歌登录”，Claude Code 会把它识别成包含本地认证、OAuth 接入、文档调研与验证的完整工程任务。',
+    principle: '任务首先进入 QueryEngine，会被纳入当前会话与工作目录上下文。',
+    tools: ['QueryEngine', 'Conversation State'],
+    result: '建立“账号密码注册登录 + Google OAuth + 最终测试”的目标范围与输出预期。',
+  },
+  {
+    id: 'context',
+    time: '00:04',
+    phase: '上下文',
+    title: '组装系统上下文',
+    summary: '系统提示词、`CLAUDE.md`、Git 状态、已有记忆与压缩后的历史消息一起注入到 query 主循环。',
+    principle: '中间架构图里的 Context 节点在这一步生效，决定 Claude Code “知道什么”。',
+    tools: ['System Prompt', 'CLAUDE.md', 'Git Status', 'Memory'],
+    result: '得到“项目规则 + 当前代码库状态 + 历史工作轨迹”的完整上下文。',
+  },
+  {
+    id: 'agent-survey',
+    time: '00:12',
+    phase: '探查',
+    title: '调用 AgentTool 并行调研',
+    summary: 'Claude Code 先通过 AgentTool 派出子 Agent 搜索仓库里的用户模型、路由、鉴权中间件与数据库配置，同时整理本地登录与第三方登录的接入切入点。',
+    principle: '这一步体现了执行图里不仅有基础工具，还可以通过 AgentTool 进行更高层次的并行检索与归纳。',
+    tools: ['AgentTool', 'GlobTool', 'GrepTool', 'FileReadTool'],
+    result: '拿到当前技术栈、可复用模块，以及“本地认证 + Google OAuth”应落在哪些文件中的结论。',
+  },
+  {
+    id: 'oauth-research',
+    time: '00:22',
+    phase: '调研',
+    title: '查询谷歌登录接入资料',
+    summary: '为了支持第三方谷歌登录，Claude Code 会调用 WebSearchTool 搜索最新的 Google OAuth 文档、回调参数与前后端接入方式，再用 WebFetchTool 抓取关键页面内容。',
+    principle: '外部知识并不直接靠模型记忆硬猜，而是通过检索与抓取把最新资料注入当前推理回路。',
+    tools: ['WebSearchTool', 'WebFetchTool'],
+    result: '确认 Google 登录所需的 client 配置、授权流程、回调字段与实现约束。',
+  },
+  {
+    id: 'plan',
+    time: '00:34',
+    phase: '决策',
+    title: '形成本地认证 + OAuth 方案',
+    summary: 'Claude Code 把任务拆成用户表、密码加密、注册接口、账号密码登录、Google 登录入口、OAuth 回调处理、前端按钮接入、环境变量配置与测试。',
+    principle: '工具结果回注到 query 后，模型进行新一轮推理并决定下一批动作。',
+    tools: ['Reasoning', 'Tool Result Injection'],
+    result: '得到一套分阶段实施方案，而不是盲目一次性生成整套认证系统。',
+  },
+  {
+    id: 'implement',
+    time: '00:48',
+    phase: '实现',
+    title: '逐步写入登录注册与谷歌登录模块',
+    summary: '开始创建或修改用户模型、认证服务、注册接口、登录接口、Google OAuth 入口与回调逻辑、前端表单页面、Google 登录按钮、环境变量与接口调用代码。',
+    principle: '真正写代码时会循环使用 FileReadTool -> FileEditTool/FileWriteTool -> FileReadTool 的模式，持续对齐实现与已有仓库结构。',
+    tools: ['FileReadTool', 'FileEditTool', 'FileWriteTool'],
+    result: '本地登录注册链路与第三方谷歌登录链路被逐步落盘到仓库中。',
+  },
+  {
+    id: 'permission',
+    time: '01:10',
+    phase: '安全',
+    title: '经过权限与风险校验',
+    summary: '如果涉及命令执行、安装依赖、数据库迁移或潜在危险操作，会经过权限系统检查与必要确认。',
+    principle: '右侧工具调用并不是直接执行，中间还会经过 Rules、AST 分析与用户确认。',
+    tools: ['Permissions', 'Rules', 'AST', 'Confirm'],
+    result: '高风险操作被拦截、降级或请求授权，避免误伤本地环境。',
+  },
+  {
+    id: 'verify-build-test',
+    time: '01:24',
+    phase: '验证',
+    title: '通过 BashTool 执行编译与测试',
+    summary: '代码初版完成后，Claude Code 会调用 BashTool 运行构建和测试命令，例如类型检查、编译、单元测试或集成测试，验证登录注册与 Google 登录流程是否可用。',
+    principle: '命令输出会作为 tool result 回注给 query，成为下一轮修复决策的直接依据。',
+    tools: ['BashTool', 'GetDiagnostics'],
+    result: '发现测试失败、类型错误、OAuth 回调参数不匹配或环境变量遗漏等问题。',
+  },
+  {
+    id: 'repair',
+    time: '01:34',
+    phase: '修复',
+    title: '依据测试结果调用 Tool 修复代码',
+    summary: '当 BashTool 返回失败日志后，Claude Code 会重新读取出错文件，定位类型问题、接口字段错误或 Google 登录回调逻辑缺陷，并通过 FileEditTool 精准修补代码。',
+    principle: '这体现了 Claude Code 的典型闭环：测试失败 -> 工具回注 -> 再推理 -> 再编辑，而不是停在报错信息上。',
+    tools: ['FileReadTool', 'FileEditTool', 'BashTool'],
+    result: '问题代码被定点修复，准备进入下一轮验证。',
+  },
+  {
+    id: 'retest',
+    time: '01:44',
+    phase: '复测',
+    title: '再次执行编译与测试直到通过',
+    summary: '修复完成后，Claude Code 会再次通过 BashTool 运行编译与测试，确认注册、登录和谷歌登录相关代码已经恢复为可构建、可测试的稳定状态。',
+    principle: '只有新的工具结果证明问题消失，系统才会结束修复循环并进入最终交付。',
+    tools: ['BashTool'],
+    result: '构建与测试通过，认证系统达到可交付状态。',
+  },
+  {
+    id: 'deliver',
+    time: '01:52',
+    phase: '交付',
+    title: '整理结果并向用户汇报',
+    summary: 'Claude Code 最后会总结修改内容、说明验证情况、列出剩余风险与下一步建议。',
+    principle: '如果没有继续需要工具，Parse 会回到 Output 分支并流式输出最终答案。',
+    tools: ['Streaming Output'],
+    result: '用户拿到一份“登录注册 + 谷歌登录实现 + 测试修复过程 + 最终验证结果”的完整交付。',
+  },
+];
 
-      setNodes([...layoutedNodes]);
-      setEdges([...layoutedEdges]);
-    },
-    [nodes, edges]
-  );
+const ArchitectureCanvas = ({ fitTrigger }: { fitTrigger: boolean }) => {
+  const [nodes, , onNodesChange] = useNodesState(layoutedNodes);
+  const [edges, , onEdgesChange] = useEdgesState(layoutedEdges);
+  const reactFlowRef = useRef<ReactFlowInstance<Node, Edge> | null>(null);
+
+  const fitArchitecture = useCallback(() => {
+    const instance = reactFlowRef.current;
+
+    if (!instance) {
+      return;
+    }
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        void instance.fitView({
+          padding: 0.12,
+          duration: 240,
+          minZoom: 0.1,
+          maxZoom: 1,
+        });
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    fitArchitecture();
+  }, [fitArchitecture, fitTrigger]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      fitArchitecture();
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, [fitArchitecture]);
 
   return (
     <div className="w-full h-full bg-slate-50 rounded-xl overflow-hidden shadow-inner border border-gray-200">
@@ -526,29 +639,257 @@ const ArchitectureFlow = () => {
         nodeTypes={nodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onInit={(instance) => {
+          reactFlowRef.current = instance;
+          fitArchitecture();
+        }}
         fitView
+        fitViewOptions={{ padding: 0.12, minZoom: 0.1, maxZoom: 1 }}
         attributionPosition="bottom-right"
         minZoom={0.1}
       >
-        <Panel position="top-right">
-          <div className="bg-white p-2 rounded-lg shadow-sm border border-gray-200 flex gap-2">
-            <button 
-              onClick={() => onLayout('TB')}
-              className="px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-sm text-gray-700 font-medium rounded transition-colors"
-            >
-              垂直布局
-            </button>
-            <button 
-              onClick={() => onLayout('LR')}
-              className="px-3 py-1.5 bg-gray-50 hover:bg-gray-100 text-sm text-gray-700 font-medium rounded transition-colors"
-            >
-              水平布局
-            </button>
-          </div>
-        </Panel>
         <Background color="#cbd5e1" gap={16} />
         <Controls />
       </ReactFlow>
+    </div>
+  );
+};
+
+const ArchitectureFlow = () => {
+  const [activeStep, setActiveStep] = useState(-1);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isArchitectureFullscreen, setIsArchitectureFullscreen] = useState(false);
+  const [selectedStep, setSelectedStep] = useState<number | null>(null);
+  const timerRef = useRef<number[]>([]);
+  const architectureSectionRef = useRef<HTMLElement | null>(null);
+  const stepListRef = useRef<HTMLDivElement | null>(null);
+  const stepItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const clearPlayback = useCallback(() => {
+    timerRef.current.forEach((timer) => window.clearTimeout(timer));
+    timerRef.current = [];
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearPlayback();
+    };
+  }, [clearPlayback]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsArchitectureFullscreen(document.fullscreenElement === architectureSectionRef.current);
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    };
+  }, []);
+
+  const startPlayback = useCallback(() => {
+    clearPlayback();
+    setSelectedStep(null);
+    setActiveStep(-1);
+    setIsPlaying(true);
+
+    const leadDelay = 400;
+    const stepDelay = 950;
+
+    demoSteps.forEach((_, index) => {
+      const timer = window.setTimeout(() => {
+        setActiveStep(index);
+      }, leadDelay + index * stepDelay);
+
+      timerRef.current.push(timer);
+    });
+
+    const finishTimer = window.setTimeout(() => {
+      setIsPlaying(false);
+    }, leadDelay + demoSteps.length * stepDelay);
+
+    timerRef.current.push(finishTimer);
+  }, [clearPlayback]);
+
+  const resetPlayback = useCallback(() => {
+    clearPlayback();
+    setActiveStep(-1);
+    setIsPlaying(false);
+    setSelectedStep(null);
+  }, [clearPlayback]);
+
+  const toggleArchitectureFullscreen = useCallback(async () => {
+    const section = architectureSectionRef.current;
+
+    if (!section) {
+      return;
+    }
+
+    try {
+      if (document.fullscreenElement === section) {
+        await document.exitFullscreen();
+      } else {
+        await section.requestFullscreen();
+      }
+    } catch (error) {
+      console.error('Failed to toggle architecture fullscreen:', error);
+    }
+  }, []);
+
+  const visibleCount = Math.max(activeStep + 1, 0);
+  const expandedStepIndex = activeStep >= 0 ? activeStep : selectedStep;
+  const showResetAction = isPlaying || activeStep >= 0 || selectedStep !== null;
+
+  useEffect(() => {
+    if (expandedStepIndex === null) {
+      return;
+    }
+
+    const list = stepListRef.current;
+    const item = stepItemRefs.current[expandedStepIndex];
+
+    if (!list || !item) {
+      return;
+    }
+
+    const listRect = list.getBoundingClientRect();
+    const itemRect = item.getBoundingClientRect();
+    const topOverflow = itemRect.top - listRect.top;
+    const bottomOverflow = itemRect.bottom - listRect.bottom;
+
+    if (topOverflow < 0) {
+      list.scrollBy({ top: topOverflow - 12, behavior: 'smooth' });
+    } else if (bottomOverflow > 0) {
+      list.scrollBy({ top: bottomOverflow + 12, behavior: 'smooth' });
+    }
+  }, [expandedStepIndex]);
+
+  return (
+    <div className="h-full w-full flex flex-col gap-4">
+      <div className="grid min-h-[860px] flex-1 gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+        <section className="flex min-h-[320px] flex-col rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-900">执行图</h3>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                {visibleCount}/{demoSteps.length}
+              </div>
+              <button
+                type="button"
+                onClick={showResetAction ? resetPlayback : startPlayback}
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+              >
+                {showResetAction ? '重置' : '开始'}
+              </button>
+            </div>
+          </div>
+
+          <div ref={stepListRef} className="mt-5 flex-1 overflow-auto pr-1">
+            <div className="space-y-4">
+              {demoSteps.map((step, index) => {
+                const isVisible = index <= activeStep;
+                const isExpanded = expandedStepIndex === index;
+
+                return (
+                  <button
+                    key={step.id}
+                    ref={(element) => {
+                      stepItemRefs.current[index] = element;
+                    }}
+                    type="button"
+                    onClick={() => {
+                      clearPlayback();
+                      setIsPlaying(false);
+                      setActiveStep(index);
+                      setSelectedStep(index);
+                    }}
+                    className={`w-full rounded-2xl border p-4 text-left transition-all duration-300 ${
+                      isExpanded
+                        ? 'border-indigo-200 bg-white shadow-sm ring-2 ring-indigo-200'
+                        : isVisible
+                          ? 'border-sky-100 bg-sky-50/60'
+                          : 'border-dashed border-slate-200 bg-slate-50'
+                    } ${!isExpanded ? 'py-3' : ''} cursor-pointer`}
+                    aria-expanded={isExpanded}
+                    aria-label={`跳转到 ${step.title}`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div>
+                        <div
+                          className={`text-sm font-semibold transition-colors ${
+                            isExpanded ? 'text-slate-900' : isVisible ? 'text-sky-800' : 'text-slate-700'
+                          }`}
+                        >
+                          {step.title}
+                        </div>
+                        <div className="mt-1 text-xs font-medium uppercase tracking-wide text-slate-500">
+                          {step.phase}
+                        </div>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <>
+                        <p className="mt-3 text-sm leading-6 text-slate-600">{step.summary}</p>
+
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {step.tools.map((tool) => (
+                            <span
+                              key={tool}
+                              className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                                isVisible
+                                  ? 'bg-slate-900 text-white'
+                                  : 'border border-slate-200 bg-white text-slate-500'
+                              }`}
+                            >
+                              {tool}
+                            </span>
+                          ))}
+                        </div>
+
+                        <div
+                          className={`mt-4 rounded-xl px-3 py-2 text-sm leading-6 ${
+                            isVisible ? 'bg-emerald-50 text-emerald-800' : 'bg-white text-slate-500'
+                          }`}
+                        >
+                          输出结果：{step.result}
+                        </div>
+                      </>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </section>
+
+        <section
+          ref={architectureSectionRef}
+          className={`flex min-h-[520px] flex-col border border-slate-200 bg-white p-4 shadow-sm ${
+            isArchitectureFullscreen ? 'h-full rounded-none border-0 p-6 shadow-none' : 'rounded-2xl'
+          }`}
+        >
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <h3 className="text-lg font-semibold text-slate-900">架构图</h3>
+            <button
+              type="button"
+              onClick={() => {
+                void toggleArchitectureFullscreen();
+              }}
+              className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              {isArchitectureFullscreen ? '恢复' : '全屏'}
+            </button>
+          </div>
+
+          <div className={isArchitectureFullscreen ? 'min-h-0 flex-1' : 'min-h-[620px] flex-1'}>
+            <ArchitectureCanvas fitTrigger={isArchitectureFullscreen} />
+          </div>
+        </section>
+      </div>
     </div>
   );
 };
